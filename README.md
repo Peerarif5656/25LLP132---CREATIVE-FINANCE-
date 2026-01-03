@@ -61,12 +61,10 @@ bash
 python churn_pipeline.py
 
 
-
-## RUN THE PROGRAM
-
 bash
 
 python churn_pipeline.py
 
 
 Outputs will be saved to report_figures/
+
