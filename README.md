@@ -60,11 +60,6 @@ pip install -r requirements.txt
 bash
 python churn_pipeline.py
 
-
-bash
-
-python churn_pipeline.py
-
-
 Outputs will be saved to report_figures/
+
 
