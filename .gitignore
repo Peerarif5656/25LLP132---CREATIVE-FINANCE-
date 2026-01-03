@@ -1,23 +1,17 @@
 # Python cache
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-
-# Jupyter
 .ipynb_checkpoints/
 
-# OS junk
+# OS files
 .DS_Store
 Thumbs.db
 
-# Environments
+# Virtual environments
 .venv/
 venv/
-.env
+env/
 
-# Logs
-*.log
-
-# Local dataset (do NOT commit)
+# Local data + generated outputs (DO NOT COMMIT)
 Churn_Modelling.csv
+report_figures/
