@@ -56,11 +56,17 @@ We compared four models under the **same pipeline** for fair evaluation:
 ```bash
 pip install -r requirements.txt
 
+## RUN
+bash
+python churn_pipeline.py
+
+
 
 ## RUN THE PROGRAM
 
 bash
 
 python churn_pipeline.py
+
 
 Outputs will be saved to report_figures/
