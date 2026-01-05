@@ -1,17 +1,8 @@
-# Python cache
 __pycache__/
-*.pyc
 .ipynb_checkpoints/
-
-# OS files
 .DS_Store
-Thumbs.db
+*.pyc
 
-# Virtual environments
-.venv/
-venv/
-env/
-
-# Local data + generated outputs (DO NOT COMMIT)
+# Local data + generated outputs
 Churn_Modelling.csv
 report_figures/
