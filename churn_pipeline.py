@@ -1,34 +1,30 @@
 """
-25LLP132 Creative Finance
+25LLP132 – Principles of Artificial Intelligence and Data Analytics
+Group: Creative Finance
 
 Project: Predicting Bank Customer Churn Using Machine Learning
-Dataset: Churn_Modelling.csv (Kaggle)
+Dataset: Kaggle “Churn Modelling” (Churn_Modelling.csv)
 
-This script reproduces the full modelling workflow referenced in our executive report and video:
-- Dataset summary tables
-- EDA figures + key EDA stats table
-- Leakage-safe modelling pipeline: Preprocess → SMOTE → Model
-- Test-set evaluation + 5-fold stratified cross-validation
-- Best-model diagnostics (confusion matrix, ROC curve, PR curve, threshold tuning)
-- Business output: Top 5% high-risk customers list (ranked by churn probability)
+This script reproduces are :
+- dataset summary tables
+- EDA figures + key stats
+- leakage-safe modelling pipeline (Preprocess → SMOTE → Model)
+- test-set evaluation + 5-fold stratified cross-validation
+- best-model diagnostics (confusion matrix, ROC, PR curve, threshold exploration)
+- actionable business output: Top 5% high-risk customer ranking
 
-All outputs are saved into: report_figures/
-
-Reproducibility controls:
-- Fixed random seed (RANDOM_STATE = 42)
-- SMOTE applied inside the pipeline (training folds only) to avoid leakage
-- Validation split drawn from training only (threshold exploration), test set untouched until final evaluation
+Outputs are saved into: report_figures/
 """
 
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple, List
 
 import numpy as np
 import pandas as pd
 
-# Safe for headless / marker environments (no GUI required)
+# Safe for marker environments (no GUI required)
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -58,55 +54,52 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline
 
-CSV_PATH = "Churn_Modelling.csv"   # Place this file in the same folder as this script 
+
+#  SETTINGS (match report + reproducibility)
+
+CSV_PATH = "Churn_Modelling.csv" # Put this file in the same folder as this script
 TARGET = "Exited"
 OUT_DIR = "report_figures"
 
 RANDOM_STATE = 42
-TEST_SIZE = 0.30                   # Train 70% / Test 30% (stratified)
-VAL_SIZE_FROM_TRAIN = 0.20         # Validation split from training only (threshold exploration)
-SMOTE_K = 3                        # Lower k helps avoid rare-fold errors for minority class
+TEST_SIZE = 0.30 # Train 70% / Test 30%
+VAL_SIZE_FROM_TRAIN = 0.20 # Validation subset from training only (threshold exploration)
+SMOTE_K = 3 # More stable for CV folds
 
-SHOW_PLOTS = False                 # Leave False for submission (figures are saved to disk)
+SHOW_PLOTS = False # Keep False for submission
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
 
 def savefig(filename: str) -> None:
-    """Save the current matplotlib figure into OUT_DIR (high resolution)."""
+    """Save current matplotlib figure into OUT_DIR with high resolution."""
     path = os.path.join(OUT_DIR, filename)
     plt.savefig(path, dpi=300, bbox_inches="tight")
     print("Saved:", path)
 
 
 def maybe_show() -> None:
-    """Only show plots if SHOW_PLOTS=True; always close to prevent memory issues."""
+    """Show plots only when SHOW_PLOTS is enabled; always close for clean runs."""
     if SHOW_PLOTS:
         plt.show()
     plt.close()
 
-#  LOAD DATA (safe checks + consistent column naming)
+
+#  LOAD DATA (safe checks + consistent naming)
+
 def load_data(csv_path: str) -> pd.DataFrame:
-    """
-    Load the dataset and apply light cleaning consistent with the report:
-    - Standardise column names
-    - Drop common identifier columns (RowNumber, CustomerId, Surname)
-    - Ensure target is binary integer (0/1)
-    """
     if not os.path.exists(csv_path):
         raise FileNotFoundError(
-            f"Cannot find '{csv_path}'. Place Churn_Modelling.csv in the SAME folder as this script."
+            f"Cannot find '{csv_path}'. Place Churn_Modelling.csv in the SAME folder as churn_pipeline.py."
         )
 
     df = pd.read_csv(csv_path)
-
-    # Standardise column names (prevents issues if spaces exist)
     df.columns = [c.strip().replace(" ", "_") for c in df.columns]
 
     if TARGET not in df.columns:
-        raise ValueError(f"Target '{TARGET}' not found. Columns are: {df.columns.tolist()}")
+        raise ValueError(f"Target '{TARGET}' not found. Columns: {df.columns.tolist()}")
 
-    # Drop common identifier columns (non-predictive IDs)
+    # Drop common identifier columns (Kaggle version)
     drop_cols = [c for c in ["RowNumber", "CustomerId", "Surname"] if c in df.columns]
     if drop_cols:
         df = df.drop(columns=drop_cols)
@@ -114,15 +107,9 @@ def load_data(csv_path: str) -> pd.DataFrame:
     df[TARGET] = df[TARGET].astype(int)
     return df
 
-#  REPORT TABLES: dataset summary + headline stats
+#  REPORT TABLES
 
 def make_dataset_tables(df: pd.DataFrame) -> Dict:
-    """
-    Create:
-    - Table_0_Data_Summary.csv  (feature types, missing values, unique counts)
-    - Table_Stats_For_Report.csv (rows, churn%, retain%, median ages)
-    Returns a stats dictionary used later for EDA summary.
-    """
     table0 = pd.DataFrame(
         {
             "Feature": df.columns,
@@ -148,41 +135,31 @@ def make_dataset_tables(df: pd.DataFrame) -> Dict:
     print("Saved: Table_0_Data_Summary.csv, Table_Stats_For_Report.csv")
     return stats
 
-#  SPLITS: Train/Test + Validation (validation from training only)
+
+
+#  SPLITS: train/test + validation from training only
 
 def make_splits(df: pd.DataFrame):
-    """
-    - Train/Test split: stratified 70/30 to preserve churn proportion.
-    - Validation split: drawn only from training data for threshold exploration.
-    """
     X = df.drop(columns=[TARGET])
     y = df[TARGET]
 
     X_train_full, X_test, y_train_full, y_test = train_test_split(
-        X,
-        y,
-        test_size=TEST_SIZE,
-        random_state=RANDOM_STATE,
-        stratify=y,
+        X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=y
     )
 
     X_train, X_val, y_train, y_val = train_test_split(
-        X_train_full,
-        y_train_full,
+        X_train_full, y_train_full,
         test_size=VAL_SIZE_FROM_TRAIN,
         random_state=RANDOM_STATE,
-        stratify=y_train_full,
+        stratify=y_train_full
     )
 
     return X, y, X_train_full, X_test, y_train_full, y_test, X_train, X_val, y_train, y_val
 
-#  PREPROCESS + PIPELINE (leakage-safe: preprocess → SMOTE → model)
+
+#  PREPROCESS + PIPELINE (preprocess → SMOTE → model)
+
 def make_preprocess(X: pd.DataFrame) -> Tuple[ColumnTransformer, List[str], List[str]]:
-    """
-    Preprocessing:
-    - numeric -> StandardScaler
-    - categorical -> OneHotEncoder(handle_unknown="ignore")
-    """
     categorical_features = X.select_dtypes(include=["object", "category"]).columns.tolist()
     numeric_features = [c for c in X.columns if c not in categorical_features]
 
@@ -200,12 +177,6 @@ def make_preprocess(X: pd.DataFrame) -> Tuple[ColumnTransformer, List[str], List
 
 
 def build_pipeline(preprocess: ColumnTransformer, model) -> ImbPipeline:
-    """
-    Leakage-safe ordering:
-    1) preprocess
-    2) SMOTE (training folds only)
-    3) model
-    """
     return ImbPipeline(
         steps=[
             ("preprocess", preprocess),
@@ -214,10 +185,10 @@ def build_pipeline(preprocess: ColumnTransformer, model) -> ImbPipeline:
         ]
     )
 
+
 #  EDA FIGURES + EDA SUMMARY TABLE
 
 def run_eda(df: pd.DataFrame, stats: Dict) -> None:
-    """Generate EDA figures and Table_EDA_KeyStats.csv used in the report."""
     # Figure 3: target distribution
     plt.figure()
     (df[TARGET].value_counts(normalize=True) * 100).sort_index().plot(kind="bar")
@@ -227,7 +198,7 @@ def run_eda(df: pd.DataFrame, stats: Dict) -> None:
     savefig("Figure_3_Target_Distribution.png")
     maybe_show()
 
-    # Figure 2 + Figure 4: categorical distributions + churn rates
+    # Figure 2 + Figure 4: categorical distribution + churn rate by category
     cat_cols = [c for c in ["Geography", "Gender", "IsActiveMember", "HasCrCard"] if c in df.columns]
     if cat_cols:
         n = len(cat_cols)
@@ -239,7 +210,6 @@ def run_eda(df: pd.DataFrame, stats: Dict) -> None:
             ax = plt.subplot(rows, cols, i)
             df[col].value_counts().plot(kind="bar", ax=ax)
             ax.set_title(f"{col} Distribution")
-            ax.set_xlabel(col)
             ax.set_ylabel("Count")
             plt.xticks(rotation=45, ha="right")
         savefig("Figure_2_Categorical_Distribution.png")
@@ -255,7 +225,7 @@ def run_eda(df: pd.DataFrame, stats: Dict) -> None:
         savefig("Figure_4_Exited_Analysis.png")
         maybe_show()
 
-    # Figure 5: boxplots for key numeric features
+    # Figure 5: boxplots
     box_cols = [c for c in ["Age", "CreditScore", "Balance", "EstimatedSalary"] if c in df.columns]
     if box_cols:
         n = len(box_cols)
@@ -275,6 +245,7 @@ def run_eda(df: pd.DataFrame, stats: Dict) -> None:
     # Figure 1: correlation heatmap (numeric only)
     numeric_df = df.select_dtypes(include=[np.number])
     corr = numeric_df.corr(numeric_only=True)
+
     plt.figure(figsize=(10, 8))
     plt.imshow(corr, aspect="auto")
     plt.title("Feature Correlation Matrix for Customer Churn Analysis")
@@ -305,10 +276,10 @@ def run_eda(df: pd.DataFrame, stats: Dict) -> None:
     pd.DataFrame(eda_stats).to_csv(os.path.join(OUT_DIR, "Table_EDA_KeyStats.csv"), index=False)
     print("Saved: Table_EDA_KeyStats.csv")
 
-#  MODELS 
+
+#  MODELS
 
 def get_models() -> Dict:
-    """Models compared under identical pipeline for fair evaluation."""
     return {
         "Logistic Regression": LogisticRegression(
             max_iter=2000, class_weight="balanced", random_state=RANDOM_STATE
@@ -324,17 +295,11 @@ def get_models() -> Dict:
         ),
     }
 
-#  TEST SET EVALUATION (Table 1)
 
-def evaluate_on_test(
-    models: Dict,
-    preprocess: ColumnTransformer,
-    X_train_full,
-    y_train_full,
-    X_test,
-    y_test,
-) -> pd.DataFrame:
-    """Fit each model on training data and evaluate on the untouched hold-out test set."""
+#  TEST EVALUATION (Table 1)
+
+def evaluate_on_test(models: Dict, preprocess: ColumnTransformer,
+                     X_train_full, y_train_full, X_test, y_test):
     results = []
 
     for name, model in models.items():
@@ -344,41 +309,37 @@ def evaluate_on_test(
         pred = pipe.predict(X_test)
 
         auc = np.nan
-        ap = np.nan  # PR-AUC summary (Average Precision)
+        ap = np.nan
         if hasattr(pipe, "predict_proba"):
             prob = pipe.predict_proba(X_test)[:, 1]
             if len(np.unique(y_test)) == 2:
                 auc = roc_auc_score(y_test, prob)
                 ap = average_precision_score(y_test, prob)
 
-        results.append(
-            {
-                "Model": name,
-                "Accuracy": accuracy_score(y_test, pred),
-                "Precision": precision_score(y_test, pred, zero_division=0),
-                "Recall": recall_score(y_test, pred, zero_division=0),
-                "F1": f1_score(y_test, pred, zero_division=0),
-                "AUC": auc,
-                "PR_AUC_AP": ap,
-            }
-        )
+        results.append({
+            "Model": name,
+            "Accuracy": accuracy_score(y_test, pred),
+            "Precision": precision_score(y_test, pred, zero_division=0),
+            "Recall": recall_score(y_test, pred, zero_division=0),
+            "F1": f1_score(y_test, pred, zero_division=0),
+            "AUC": auc,
+            "PR_AUC_AP": ap,
+        })
 
     results_df = pd.DataFrame(results).sort_values(by="F1", ascending=False)
 
-    results_df_round = results_df.copy()
+    out = results_df.copy()
     for c in ["Accuracy", "Precision", "Recall", "F1", "AUC", "PR_AUC_AP"]:
-        results_df_round[c] = results_df_round[c].astype(float).round(3)
+        out[c] = out[c].astype(float).round(3)
 
-    results_df_round.to_csv(os.path.join(OUT_DIR, "Table_1_Model_Performance_TestSet.csv"), index=False)
+    out.to_csv(os.path.join(OUT_DIR, "Table_1_Model_Performance_TestSet.csv"), index=False)
     print("Saved: Table_1_Model_Performance_TestSet.csv")
     return results_df
 
+
 #  5-FOLD STRATIFIED CV (Table 2 + Figure 10)
 
-def evaluate_with_cv(
-    models: Dict, preprocess: ColumnTransformer, X_train_full, y_train_full
-) -> pd.DataFrame:
-    """Run 5-fold stratified cross-validation to assess stability (mean ± std)."""
+def evaluate_with_cv(models: Dict, preprocess: ColumnTransformer, X_train_full, y_train_full):
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
     cv_rows = []
 
@@ -394,66 +355,51 @@ def evaluate_with_cv(
             n_jobs=-1,
         )
 
-        cv_rows.append(
-            {
-                "Model": name,
-                "CV_Accuracy_mean": scores["test_accuracy"].mean(),
-                "CV_Accuracy_std": scores["test_accuracy"].std(),
-                "CV_Precision_mean": scores["test_precision"].mean(),
-                "CV_Precision_std": scores["test_precision"].std(),
-                "CV_Recall_mean": scores["test_recall"].mean(),
-                "CV_Recall_std": scores["test_recall"].std(),
-                "CV_F1_mean": scores["test_f1"].mean(),
-                "CV_F1_std": scores["test_f1"].std(),
-                "CV_AUC_mean": scores["test_roc_auc"].mean(),
-                "CV_AUC_std": scores["test_roc_auc"].std(),
-            }
-        )
+        cv_rows.append({
+            "Model": name,
+            "CV_Accuracy_mean": scores["test_accuracy"].mean(),
+            "CV_Accuracy_std": scores["test_accuracy"].std(),
+            "CV_Precision_mean": scores["test_precision"].mean(),
+            "CV_Precision_std": scores["test_precision"].std(),
+            "CV_Recall_mean": scores["test_recall"].mean(),
+            "CV_Recall_std": scores["test_recall"].std(),
+            "CV_F1_mean": scores["test_f1"].mean(),
+            "CV_F1_std": scores["test_f1"].std(),
+            "CV_AUC_mean": scores["test_roc_auc"].mean(),
+            "CV_AUC_std": scores["test_roc_auc"].std(),
+        })
 
     cv_df = pd.DataFrame(cv_rows).sort_values(by="CV_F1_mean", ascending=False)
-    cv_df_round = cv_df.copy()
-    for c in cv_df_round.columns:
-        if c != "Model":
-            cv_df_round[c] = cv_df_round[c].astype(float).round(3)
 
-    cv_df_round.to_csv(os.path.join(OUT_DIR, "Table_2_CrossValidation_5Fold.csv"), index=False)
+    out = cv_df.copy()
+    for c in out.columns:
+        if c != "Model":
+            out[c] = out[c].astype(float).round(3)
+
+    out.to_csv(os.path.join(OUT_DIR, "Table_2_CrossValidation_5Fold.csv"), index=False)
     print("Saved: Table_2_CrossValidation_5Fold.csv")
 
-    # Figure 10: F1 stability plot
     plt.figure()
-    order = cv_df_round.sort_values("CV_F1_mean", ascending=True)
+    order = out.sort_values("CV_F1_mean", ascending=True)
     plt.errorbar(order["CV_F1_mean"], order["Model"], xerr=order["CV_F1_std"], fmt="o")
     plt.title("Cross-Validation F1 (mean ± std)")
     plt.xlabel("F1")
     savefig("Figure_10_CV_F1_ErrorBars.png")
     maybe_show()
 
-    return cv_df_round
+    return out
 
-#  BEST MODEL DIAGNOSTICS + THRESHOLD TUNING (validation only)
 
-def best_model_diagnostics(
-    best_name: str,
-    models: Dict,
-    preprocess: ColumnTransformer,
-    X_train_full,
-    y_train_full,
-    X_test,
-    y_test,
-    X_train,
-    y_train,
-    X_val,
-    y_val,
-    categorical_features: List[str],
-    numeric_features: List[str],
-) -> ImbPipeline:
-    """
-    Tune threshold on validation only (drawn from training), then refit on full training
-    and report final diagnostics on the untouched test set.
-    """
+
+#  BEST MODEL DIAGNOSTICS + THRESHOLD EXPLORATION
+
+def best_model_diagnostics(best_name: str, models: Dict, preprocess: ColumnTransformer,
+                           X_train_full, y_train_full, X_test, y_test,
+                           X_train, y_train, X_val, y_val,
+                           categorical_features: List[str], numeric_features: List[str]) -> ImbPipeline:
     best_pipe = build_pipeline(preprocess, models[best_name])
 
-    #  Threshold exploration on validation ONLY 
+    # Threshold exploration (validation only)
     best_pipe.fit(X_train, y_train)
     best_threshold = 0.5
 
@@ -461,24 +407,20 @@ def best_model_diagnostics(
         val_prob = best_pipe.predict_proba(X_val)[:, 1]
         prec, rec, thr = precision_recall_curve(y_val, val_prob)
         f1s = 2 * (prec * rec) / (prec + rec + 1e-12)
-
         idx = int(np.argmax(f1s[:-1])) if len(thr) > 0 else None
         best_threshold = float(thr[idx]) if idx is not None else 0.5
 
-    # Refit on full training for final test reporting (no test leakage)
+    # Refit on full training (no test leakage)
     best_pipe.fit(X_train_full, y_train_full)
 
     test_pred_default = best_pipe.predict(X_test)
-
-    test_prob = None
-    if hasattr(best_pipe, "predict_proba"):
-        test_prob = best_pipe.predict_proba(X_test)[:, 1]
+    test_prob = best_pipe.predict_proba(X_test)[:, 1] if hasattr(best_pipe, "predict_proba") else None
 
     test_pred_tuned = test_pred_default
     if test_prob is not None:
         test_pred_tuned = (test_prob >= best_threshold).astype(int)
 
-    # Figure 6: Confusion matrix
+    # Figure 6: confusion matrix
     cm = confusion_matrix(y_test, test_pred_default)
     plt.figure()
     ConfusionMatrixDisplay(confusion_matrix=cm).plot()
@@ -493,7 +435,7 @@ def best_model_diagnostics(
     cm_table.to_csv(os.path.join(OUT_DIR, "Table_Confusion_Matrix_Values.csv"), index=True)
     print("Saved: Table_Confusion_Matrix_Values.csv")
 
-    # ROC + PR curves (Figure 7 + Figure 9)
+    # Figure 7 + Figure 9
     if test_prob is not None and len(np.unique(y_test)) == 2:
         auc_val = roc_auc_score(y_test, test_prob)
 
@@ -510,22 +452,18 @@ def best_model_diagnostics(
         maybe_show()
 
     # Table 3: threshold exploration summary
-    table3 = pd.DataFrame(
-        [
-            {
-                "Best_Model": best_name,
-                "Threshold_Selected_on_Validation": round(best_threshold, 3),
-                "Test_Recall_default_0.50": round(recall_score(y_test, test_pred_default, zero_division=0), 3),
-                "Test_F1_default_0.50": round(f1_score(y_test, test_pred_default, zero_division=0), 3),
-                "Test_Recall_tuned": round(recall_score(y_test, test_pred_tuned, zero_division=0), 3),
-                "Test_F1_tuned": round(f1_score(y_test, test_pred_tuned, zero_division=0), 3),
-            }
-        ]
-    )
+    table3 = pd.DataFrame([{
+        "Best_Model": best_name,
+        "Threshold_Selected_on_Validation": round(best_threshold, 3),
+        "Test_Recall_default_0.50": round(recall_score(y_test, test_pred_default, zero_division=0), 3),
+        "Test_F1_default_0.50": round(f1_score(y_test, test_pred_default, zero_division=0), 3),
+        "Test_Recall_tuned": round(recall_score(y_test, test_pred_tuned, zero_division=0), 3),
+        "Test_F1_tuned": round(f1_score(y_test, test_pred_tuned, zero_division=0), 3),
+    }])
     table3.to_csv(os.path.join(OUT_DIR, "Table_3_Threshold_Tuning.csv"), index=False)
     print("Saved: Table_3_Threshold_Tuning.csv")
 
-    # Business output: Top 5% churn-risk customers
+    # Business output: Top 5% high-risk customers
     if test_prob is not None:
         risk_out = X_test.copy()
         risk_out["Churn_Probability"] = test_prob
@@ -537,7 +475,7 @@ def best_model_diagnostics(
         top_risk.to_csv(os.path.join(OUT_DIR, "Top_5pct_HighRisk_Customers.csv"), index=False)
         print("Saved: Top_5pct_HighRisk_Customers.csv")
 
-    # Feature importance for tree-based best models (Figure 8 + CSV)
+    # Feature importance (Figure 8 + CSV) for tree-based models
     if best_name in ["Decision Tree", "Random Forest", "Gradient Boosting"]:
         ohe = best_pipe.named_steps["preprocess"].named_transformers_["cat"]
         cat_names = ohe.get_feature_names_out(categorical_features).tolist() if categorical_features else []
@@ -545,9 +483,10 @@ def best_model_diagnostics(
 
         fitted_model = best_pipe.named_steps["model"]
         if hasattr(fitted_model, "feature_importances_"):
-            fi = pd.DataFrame(
-                {"feature": feature_names, "importance": fitted_model.feature_importances_}
-            ).sort_values("importance", ascending=False).head(15)
+            fi = pd.DataFrame({
+                "feature": feature_names,
+                "importance": fitted_model.feature_importances_,
+            }).sort_values("importance", ascending=False).head(15)
 
             plt.figure(figsize=(8, 6))
             plt.barh(fi["feature"][::-1], fi["importance"][::-1])
@@ -560,10 +499,10 @@ def best_model_diagnostics(
 
     return best_pipe
 
+
 #  OPTIONAL FAIRNESS CHECK (Recall by group)
 
 def fairness_recall_table(pipe: ImbPipeline, X_te, y_te, group_col: str) -> pd.DataFrame:
-    """Compute recall by group (optional evidence for responsible analysis)."""
     temp = X_te[[group_col]].copy()
     temp["y_true"] = y_te.values
     temp["y_pred"] = pipe.predict(X_te)
@@ -574,7 +513,6 @@ def fairness_recall_table(pipe: ImbPipeline, X_te, y_te, group_col: str) -> pd.D
         out.append({"Group": g, "Recall": r, "Count": int(len(sub))})
     return pd.DataFrame(out).sort_values("Recall", ascending=False)
 
-# MAIN: run everything end-to-end
 def main() -> None:
     df = load_data(CSV_PATH)
     print("Dataset shape:", df.shape)
@@ -584,39 +522,24 @@ def main() -> None:
     X, y, X_train_full, X_test, y_train_full, y_test, X_train, X_val, y_train, y_val = make_splits(df)
     preprocess, categorical_features, numeric_features = make_preprocess(X)
 
-    # EDA outputs used in report
     run_eda(df, stats)
 
     models = get_models()
 
-    # Test set evaluation (Table 1)
     results_df = evaluate_on_test(models, preprocess, X_train_full, y_train_full, X_test, y_test)
-
-    # Cross validation (Table 2 + Figure 10)
     _ = evaluate_with_cv(models, preprocess, X_train_full, y_train_full)
 
-    # Best model by Test F1
     best_name = results_df.iloc[0]["Model"]
     print("Best model (by Test F1):", best_name)
 
     best_pipe = best_model_diagnostics(
-        best_name,
-        models,
-        preprocess,
-        X_train_full,
-        y_train_full,
-        X_test,
-        y_test,
-        X_train,
-        y_train,
-        X_val,
-        y_val,
-        categorical_features,
-        numeric_features,
+        best_name, models, preprocess,
+        X_train_full, y_train_full, X_test, y_test,
+        X_train, y_train, X_val, y_val,
+        categorical_features, numeric_features,
     )
 
-    # Optional fairness tables (only if columns exist)
-    for col in ["Gender", "Geography"]:
+for col in ["Gender", "Geography"]:
         if col in X_test.columns:
             ft = fairness_recall_table(best_pipe, X_test, y_test, col)
             ft.to_csv(os.path.join(OUT_DIR, f"Table_Fairness_Recall_by_{col}.csv"), index=False)
