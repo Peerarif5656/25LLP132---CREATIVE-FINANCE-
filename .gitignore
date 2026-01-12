@@ -1,8 +1,22 @@
+# Python cache
 __pycache__/
-.ipynb_checkpoints/
-.DS_Store
 *.pyc
 
-# Local data + generated outputs
-Churn_Modelling.csv
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Output folder (optional)
 report_figures/
+
+# Data 
+*.csv
+Churn_Modelling.csv
