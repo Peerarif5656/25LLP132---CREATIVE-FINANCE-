@@ -1,53 +1,47 @@
-# Predicting Bank Customer Churn Using Machine Learning (25LLP132)
+# Predicting Bank Customer Churn Using Machine Learning
 
 **Module:** 25LLP132 – Principles of Artificial Intelligence and Data Analytics  
 **Group:** Creative Finance  
-**Dataset:** Kaggle “Churn Modelling” (`Churn_Modelling.csv`)  
-**Task:** Predict customer churn (`Exited`) to support early retention intervention.
+**Project:** Predicting Bank Customer Churn Using Machine Learning  
+**Dataset:** Kaggle “Churn Modelling” (`Churn_Modelling.csv`)
 
-## Project Goal (Business Context)
+This repository contains the reproducible pipeline used in our project .
+
+## Business Context
 Customer churn is costly: retaining customers is usually cheaper than acquiring new ones.  
-This project builds a supervised ML workflow to identify high-risk customers early so retention teams can take targeted actions.
+Our goal is to identify high-risk customers early so the bank can apply targeted retention strategies.
 
 ## Dataset Summary
-- Rows: 10,000 customers  
-- Target: `Exited` (1 = churned, 0 = retained)  
-- Removed non-predictive identifiers: `RowNumber`, `CustomerId`, `Surname`  
-- Features include demographic, financial, and behavioural variables  
-- Churn rate is ~20.37%, so evaluation uses imbalance-aware metrics (Recall, F1, PR-AUC)
+- Rows: **10,000 customers**
+- Target: **Exited** (1 = churned, 0 = retained)
+- Removed non-predictive identifiers: **RowNumber, CustomerId, Surname**
+- Features include demographic, financial, and behavioural variables
+- Churn rate: **~20.37%**, so evaluation focuses on **Recall, F1, and PR-AUC** (not accuracy alone)
 
-## Reproducible Pipeline (Leakage-Safe)
-We implement a leakage-safe machine learning pipeline:
-
+## Leakage-Safe Pipeline (Key Design)
 **Preprocess → SMOTE → Model**
 
 - Preprocess: `StandardScaler` (numeric) + `OneHotEncoder` (categorical)
-- SMOTE: applied **inside the pipeline**, so oversampling happens only on training folds (no leakage)
-- Split: 70% train / 30% test (stratified)
-- Validation: split from training only (threshold exploration); test set untouched until final evaluation
-- Models compared:
-  - Logistic Regression (baseline)
-  - Decision Tree (interpretable)
-  - Random Forest (300 trees)
-  - Gradient Boosting (best overall in our run)
-- Stability check: 5-fold stratified cross-validation
+- SMOTE is applied **inside the pipeline**, so oversampling happens only on training folds (prevents leakage)
+- Split: **70% train / 30% test** (stratified)
+- Validation: split from training only (used for threshold exploration); test set untouched until final evaluation
 
-## Repository Contents
-- `churn_pipeline.py` — end-to-end pipeline to reproduce figures and tables
-- `requirements.txt` — Python dependencies
-- `.gitignore` — excludes dataset and generated outputs from GitHub
-- `report_figures/` — generated locally when you run the script (not committed)
+## Models Compared
+- Logistic Regression (baseline)
+- Decision Tree (interpretable)
+- Random Forest (300 trees)
+- Gradient Boosting (best overall performance in our run)
 
 ## How to Run
-### 1) Put the dataset in the same folder
-Download the Kaggle Churn Modelling dataset and place:
-- `Churn_Modelling.csv`
+
+### 1) Place the dataset
+Download `Churn_Modelling.csv` from Kaggle and place it in the same folder as `churn_pipeline.py`.
+
+> Note: The dataset is not included in this repository to respect Kaggle licensing.
 
 ### 2) Install dependencies
 ```bash
 pip install -r requirements.txt
 
-bash
+### 3) Run
 python churn_pipeline.py
-
-
